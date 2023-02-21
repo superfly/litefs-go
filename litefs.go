@@ -25,11 +25,15 @@ const (
 //
 // This function is a no-op if the current node is the primary.
 func Halt(f *os.File) error {
-	return syscall.FcntlFlock(f.Fd(), F_OFD_SETLKW, &syscall.Flock_t{
-		Type:  syscall.F_WRLCK,
-		Start: HaltByte,
-		Len:   1,
-	})
+	for {
+		if err := syscall.FcntlFlock(f.Fd(), F_OFD_SETLKW, &syscall.Flock_t{
+			Type:  syscall.F_WRLCK,
+			Start: HaltByte,
+			Len:   1,
+		}); err != syscall.EINTR {
+			return err // exit on non-EINTR error
+		}
+	}
 }
 
 // Unhalt releases the HALT lock on the file handle to the SQLite database.
@@ -39,11 +43,15 @@ func Halt(f *os.File) error {
 // This function is a no-op if the current node is the primary or if the
 // lock expired.
 func Unhalt(f *os.File) error {
-	return syscall.FcntlFlock(f.Fd(), F_OFD_SETLKW, &syscall.Flock_t{
-		Type:  syscall.F_UNLCK,
-		Start: HaltByte,
-		Len:   1,
-	})
+	for {
+		if err := syscall.FcntlFlock(f.Fd(), F_OFD_SETLKW, &syscall.Flock_t{
+			Type:  syscall.F_UNLCK,
+			Start: HaltByte,
+			Len:   1,
+		}); err != syscall.EINTR {
+			return err // exit on non-EINTR error
+		}
+	}
 }
 
 // WithHalt executes fn with a HALT lock. This allows any node to perform writes
