@@ -17,8 +17,8 @@ const (
 	HaltByte = 72
 )
 
-// Halt locks the HALT lock on the file handle to the SQLite database. This
-// causes writes to be halted on the primary node so that this replica can
+// Halt locks the HALT lock on the file handle to the LiteFS database lock file.
+// This causes writes to be halted on the primary node so that this replica can
 // perform writes until Unhalt() is invoked.
 //
 // The HALT lock will automatically be released when the file descriptor is closed.
@@ -36,9 +36,9 @@ func Halt(f *os.File) error {
 	}
 }
 
-// Unhalt releases the HALT lock on the file handle to the SQLite database.
-// allows writes to resume on the primary node. This replica will not be able
-// to perform any more writes until Halt() is called again.
+// Unhalt releases the HALT lock on the file handle to the LiteFS database lock
+// file. This allows writes to resume on the primary node. This replica will
+// not be able to perform any more writes until Halt() is called again.
 //
 // This function is a no-op if the current node is the primary or if the
 // lock expired.
@@ -65,8 +65,8 @@ func Unhalt(f *os.File) error {
 //
 // This function should only be used for periodic migrations or low-write
 // scenarios.
-func WithHalt(path string, fn func() error) error {
-	f, err := os.OpenFile(path, os.O_RDWR, 0666)
+func WithHalt(databasePath string, fn func() error) error {
+	f, err := os.OpenFile(databasePath+"-lock", os.O_RDWR, 0666)
 	if err != nil {
 		return err
 	}
