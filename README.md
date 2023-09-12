@@ -1,4 +1,4 @@
-LiteFS Go Library
+LiteFS Go Library [![Go Reference](https://pkg.go.dev/badge/github.com/superfly/litefs-go.svg)](https://pkg.go.dev/github.com/superfly/litefs-go)
 =================
 
 This Go library is for interacting with LiteFS features that cannot be accessed
