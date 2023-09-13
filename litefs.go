@@ -1,8 +1,14 @@
 package litefs
 
 import (
+	"errors"
+	"math"
 	"os"
+	"path"
+	"strconv"
+	"strings"
 	"syscall"
+	"time"
 )
 
 // Open file description lock constants.
@@ -81,4 +87,27 @@ func WithHalt(databasePath string, fn func() error) error {
 	}
 
 	return Unhalt(f)
+}
+
+var errNotReplicated = errors.New("initial replication from primary not finished yet")
+
+// Lag reports the how far this node is lagging behind the primary. The lag is
+// 0 on the primary node. In the absence of new transactions from the primary,
+// heartbeat messages are sent at one second intervals.
+func Lag(databasePath string) (time.Duration, error) {
+	content, err := os.ReadFile(path.Dir(databasePath) + "/.lag")
+	if err != nil {
+		return 0, err
+	}
+
+	lag, err := strconv.ParseInt(strings.TrimSpace(string(content)), 10, 32)
+	if err != nil {
+		return 0, err
+	}
+
+	if lag == math.MaxInt32 {
+		return 0, errNotReplicated
+	}
+
+	return time.Duration(lag) * time.Millisecond, nil
 }
