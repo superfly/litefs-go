@@ -7,13 +7,13 @@ import (
 
 // SubscribeEvents subscribes to events from the default (localhost:20202)
 // LiteFS node.
-func SubscribeEvents() *EventSubscription {
+func SubscribeEvents() EventSubscription {
 	return DefaultClient.SubscribeEvents()
 }
 
 // MonitorPrimary monitors the primary status of the LiteFS cluster via the
 // default (localhost:20202) LiteFS node's event stream.
-func MonitorPrimary() *PrimaryMonitor {
+func MonitorPrimary() PrimaryMonitor {
 	return DefaultClient.MonitorPrimary()
 }
 
@@ -34,10 +34,10 @@ var DefaultClient = &Client{
 }
 
 // SubscribeEvents subscribes to events from the LiteFS node.
-func (c *Client) SubscribeEvents() *EventSubscription {
+func (c *Client) SubscribeEvents() EventSubscription {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	return &EventSubscription{
+	return &eventSubscription{
 		c:         c,
 		ctx:       ctx,
 		cancelCtx: cancel,
@@ -46,8 +46,8 @@ func (c *Client) SubscribeEvents() *EventSubscription {
 
 // MonitorPrimary monitors the primary status of the LiteFS cluster via the
 // LiteFS node's event stream.
-func (c *Client) MonitorPrimary() *PrimaryMonitor {
-	pm := &PrimaryMonitor{
+func (c *Client) MonitorPrimary() PrimaryMonitor {
+	pm := &primaryMonitor{
 		es:    c.SubscribeEvents(),
 		ready: make(chan struct{}),
 	}

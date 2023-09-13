@@ -15,7 +15,18 @@ var (
 )
 
 // EventSubscription monitors a LiteFS node for published events.
-type EventSubscription struct {
+type EventSubscription interface {
+	// Next attempts to read the next event from the LiteFS node. An error is
+	// returned if the request fails. Calling `Next()` again after an error will
+	// initiate a new HTTP request. ErrClosed is returned if the EventSubscription
+	// is closed while this method is blocking.
+	Next() (*Event, error)
+
+	// Close aborts any in-progress requests to the LiteFS node.
+	Close()
+}
+
+type eventSubscription struct {
 	c         *Client
 	ctx       context.Context
 	d         *json.Decoder
@@ -24,11 +35,9 @@ type EventSubscription struct {
 	m         sync.Mutex
 }
 
-// Next attempts to read the next event from the LiteFS node. An error is
-// returned if the request fails. Calling `Next()` again after an error will
-// initiate a new HTTP request. ErrClosed is returned if the EventSubscription
-// is closed while this method is blocking.
-func (es *EventSubscription) Next() (*Event, error) {
+var _ EventSubscription = (*eventSubscription)(nil)
+
+func (es *eventSubscription) Next() (*Event, error) {
 	e, err := es.next()
 	if errors.Is(err, context.Canceled) || errors.Is(err, http.ErrBodyReadAfterClose) {
 		err = ErrClosed
@@ -36,7 +45,7 @@ func (es *EventSubscription) Next() (*Event, error) {
 	return e, err
 }
 
-func (es *EventSubscription) next() (*Event, error) {
+func (es *eventSubscription) next() (*Event, error) {
 	es.m.Lock()
 	defer es.m.Unlock()
 
@@ -66,8 +75,7 @@ func (es *EventSubscription) next() (*Event, error) {
 	return &e, nil
 }
 
-// Close aborts any in-progress requests to the LiteFS node.
-func (es *EventSubscription) Close() {
+func (es *eventSubscription) Close() {
 	es.cancelCtx()
 
 	es.m.Lock()

@@ -11,8 +11,32 @@ var (
 )
 
 // PrimaryMonitor monitors the current primary status of the LiteFS cluster.
-type PrimaryMonitor struct {
-	es    *EventSubscription
+type PrimaryMonitor interface {
+	// WaitReady blocks until ctx expires or a response or error has been received
+	// from the local LiteFS node. IsPrimary and Hostname will return errors until
+	// this method returns nil.
+	WaitReady(ctx context.Context) error
+
+	// IsPrimary reports whether the local node is primary node in the cluster. An
+	// error is returned if this method is called before data has been received
+	// from the local LiteFS node (see WaitReady). If an error is encountered while
+	// communicating with the node, that error, along with the most recent
+	// IsPrimary value will be returned.
+	IsPrimary() (bool, error)
+
+	// Hostname reports the name of the current primary node in the cluster. An
+	// error is returned if this method is called before data has been received
+	// from the local LiteFS node (see WaitReady). If an error is encountered while
+	// communicating with the node, that error, along with the most recent
+	// Hostname value will be returned.
+	Hostname() (string, error)
+
+	// Close unsubscribes to the LiteFS node's event stream.
+	Close()
+}
+
+type primaryMonitor struct {
+	es    EventSubscription
 	ready chan struct{}
 	m     sync.RWMutex
 
@@ -21,10 +45,9 @@ type PrimaryMonitor struct {
 	err       error
 }
 
-// WaitReady blocks until ctx expires or a response or error has been received
-// from the local LiteFS node. IsPrimary and Hostname will return errors until
-// this method returns nil.
-func (pm *PrimaryMonitor) WaitReady(ctx context.Context) error {
+var _ PrimaryMonitor = (*primaryMonitor)(nil)
+
+func (pm *primaryMonitor) WaitReady(ctx context.Context) error {
 	select {
 	case <-pm.ready:
 		pm.m.RLock()
@@ -35,12 +58,7 @@ func (pm *PrimaryMonitor) WaitReady(ctx context.Context) error {
 	}
 }
 
-// IsPrimary reports whether the local node is primary node in the cluster. An
-// error is returned if this method is called before data has been received
-// from the local LiteFS node (see WaitReady). If an error is encountered while
-// communicating with the node, that error, along with the most recent
-// IsPrimary value will be returned.
-func (pm *PrimaryMonitor) IsPrimary() (bool, error) {
+func (pm *primaryMonitor) IsPrimary() (bool, error) {
 	select {
 	case <-pm.ready:
 	default:
@@ -53,12 +71,7 @@ func (pm *PrimaryMonitor) IsPrimary() (bool, error) {
 	return pm.isPrimary, pm.err
 }
 
-// Hostname reports the name of the current primary node in the cluster. An
-// error is returned if this method is called before data has been received
-// from the local LiteFS node (see WaitReady). If an error is encountered while
-// communicating with the node, that error, along with the most recent
-// Hostname value will be returned.
-func (pm *PrimaryMonitor) Hostname() (string, error) {
+func (pm *primaryMonitor) Hostname() (string, error) {
 	select {
 	case <-pm.ready:
 	default:
@@ -71,12 +84,11 @@ func (pm *PrimaryMonitor) Hostname() (string, error) {
 	return pm.hostname, pm.err
 }
 
-// Close unsubscribes to the LiteFS node's event stream.
-func (pm *PrimaryMonitor) Close() {
+func (pm *primaryMonitor) Close() {
 	pm.es.Close()
 }
 
-func (pm *PrimaryMonitor) run() {
+func (pm *primaryMonitor) run() {
 	first := true
 
 	for {
@@ -98,7 +110,7 @@ func (pm *PrimaryMonitor) run() {
 	}
 }
 
-func (pm *PrimaryMonitor) setData(isPrimary bool, hostname string) {
+func (pm *primaryMonitor) setData(isPrimary bool, hostname string) {
 	pm.m.Lock()
 	defer pm.m.Unlock()
 
@@ -107,7 +119,7 @@ func (pm *PrimaryMonitor) setData(isPrimary bool, hostname string) {
 	pm.err = nil
 }
 
-func (pm *PrimaryMonitor) setError(err error) {
+func (pm *primaryMonitor) setError(err error) {
 	pm.m.Lock()
 	defer pm.m.Unlock()
 

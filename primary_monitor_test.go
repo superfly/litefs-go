@@ -94,7 +94,7 @@ func TestPrimaryMonitor(t *testing.T) {
 	})
 }
 
-func assertReady(t *testing.T, pm *PrimaryMonitor, to time.Duration) {
+func assertReady(t *testing.T, pm PrimaryMonitor, to time.Duration) {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), to)
@@ -105,7 +105,7 @@ func assertReady(t *testing.T, pm *PrimaryMonitor, to time.Duration) {
 	}
 }
 
-func assertPrimary(t *testing.T, pm *PrimaryMonitor, expectedIP bool, expectedHN string) {
+func assertPrimary(t *testing.T, pm PrimaryMonitor, expectedIP bool, expectedHN string) {
 	t.Helper()
 	time.Sleep(5 * time.Millisecond)
 
@@ -126,7 +126,7 @@ func assertPrimary(t *testing.T, pm *PrimaryMonitor, expectedIP bool, expectedHN
 	}
 }
 
-func mockServerMonitor(t *testing.T) (*PrimaryMonitor, chan string) {
+func mockServerMonitor(t *testing.T) (PrimaryMonitor, chan string) {
 	c := make(chan string)
 
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

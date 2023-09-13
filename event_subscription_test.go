@@ -119,7 +119,7 @@ var (
 	pChangeNode2Event = &Event{Type: EventTypePrimaryChange, Data: &PrimaryChangeEventData{IsPrimary: false, Hostname: "node-2"}}
 )
 
-func mockServerSubscription(t *testing.T, resps ...string) *EventSubscription {
+func mockServerSubscription(t *testing.T, resps ...string) EventSubscription {
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		for len(resps) != 0 {
 			if r.Context().Err() != nil {
@@ -159,7 +159,7 @@ func mockServerSubscription(t *testing.T, resps ...string) *EventSubscription {
 	return es
 }
 
-func assertReadEvent(t *testing.T, es *EventSubscription, expected *Event) {
+func assertReadEvent(t *testing.T, es EventSubscription, expected *Event) {
 	t.Helper()
 
 	event, err := es.Next()
