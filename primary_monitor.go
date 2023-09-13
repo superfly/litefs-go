@@ -8,7 +8,6 @@ import (
 
 var (
 	ErrNotReady = errors.New("awaiting first event")
-	ErrClosed   = errors.New("PrimaryMonitor closed")
 )
 
 // PrimaryMonitor monitors the current primary status of the LiteFS cluster.
@@ -20,18 +19,6 @@ type PrimaryMonitor struct {
 	isPrimary bool
 	hostname  string
 	err       error
-}
-
-// NewPrimaryMonitor returns a new *PrimaryMonitor.
-func NewPrimaryMonitor() *PrimaryMonitor {
-	pm := &PrimaryMonitor{
-		es:    SubscribeEvents(),
-		ready: make(chan struct{}),
-	}
-
-	go pm.run()
-
-	return pm
 }
 
 // WaitReady blocks until ctx expires or a response or error has been received
@@ -51,7 +38,7 @@ func (pm *PrimaryMonitor) WaitReady(ctx context.Context) error {
 // IsPrimary reports whether the local node is primary node in the cluster. An
 // error is returned if this method is called before data has been received
 // from the local LiteFS node (see WaitReady). If an error is encountered while
-// communicating with the local node, that error, along with the most recent
+// communicating with the node, that error, along with the most recent
 // IsPrimary value will be returned.
 func (pm *PrimaryMonitor) IsPrimary() (bool, error) {
 	select {
@@ -69,7 +56,7 @@ func (pm *PrimaryMonitor) IsPrimary() (bool, error) {
 // Hostname reports the name of the current primary node in the cluster. An
 // error is returned if this method is called before data has been received
 // from the local LiteFS node (see WaitReady). If an error is encountered while
-// communicating with the local node, that error, along with the most recent
+// communicating with the node, that error, along with the most recent
 // Hostname value will be returned.
 func (pm *PrimaryMonitor) Hostname() (string, error) {
 	select {
@@ -84,32 +71,24 @@ func (pm *PrimaryMonitor) Hostname() (string, error) {
 	return pm.hostname, pm.err
 }
 
-// Close unsubscribes to the local LiteFS node's event stream.
+// Close unsubscribes to the LiteFS node's event stream.
 func (pm *PrimaryMonitor) Close() {
 	pm.es.Close()
-	pm.setError(ErrClosed)
 }
 
 func (pm *PrimaryMonitor) run() {
 	first := true
 
 	for {
-		select {
-		case event, running := <-pm.es.C():
-			if !running {
-				return
-			}
-			switch data := event.Data.(type) {
+		if e, err := pm.es.Next(); err != nil {
+			pm.setError(err)
+		} else {
+			switch data := e.Data.(type) {
 			case *InitEventData:
 				pm.setData(data.IsPrimary, data.Hostname)
 			case *PrimaryChangeEventData:
 				pm.setData(data.IsPrimary, data.Hostname)
 			}
-		case err, running := <-pm.es.ErrC():
-			if !running {
-				return
-			}
-			pm.setError(err)
 		}
 
 		if first {

@@ -6,94 +6,75 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 )
 
 var (
-	EventSubscriptionClient = http.DefaultClient
-	EventSubscriptionURL    = "http://localhost:20202/events"
-)
-
-var (
+	ErrClosed           = errors.New("closed EventSubscription")
 	errUnexpectedStatus = errors.New("unexpected status")
 )
 
-// EventSubscription tracks events published by a LiteFS node.
+// EventSubscription monitors a LiteFS node for published events.
 type EventSubscription struct {
-	c     chan *Event
-	errc  chan error
-	ctx   context.Context
-	close func()
+	c         *Client
+	ctx       context.Context
+	d         *json.Decoder
+	cancelCtx func()
+	closeBody func() error
+	m         sync.Mutex
 }
 
-func SubscribeEvents() *EventSubscription {
-	ctx, close := context.WithCancel(context.Background())
-
-	es := &EventSubscription{
-		c:     make(chan *Event),
-		errc:  make(chan error),
-		ctx:   ctx,
-		close: close,
+// Next attempts to read the next event from the LiteFS node. An error is
+// returned if the request fails. Calling `Next()` again after an error will
+// initiate a new HTTP request. ErrClosed is returned if the EventSubscription
+// is closed while this method is blocking.
+func (es *EventSubscription) Next() (*Event, error) {
+	e, err := es.next()
+	if errors.Is(err, context.Canceled) || errors.Is(err, http.ErrBodyReadAfterClose) {
+		err = ErrClosed
 	}
-
-	go es.run()
-
-	return es
+	return e, err
 }
 
-func (es *EventSubscription) run() {
-	defer close(es.c)
-	defer close(es.errc)
+func (es *EventSubscription) next() (*Event, error) {
+	es.m.Lock()
+	defer es.m.Unlock()
 
-	for {
-		err := es.doRequest()
-		if es.ctx.Err() != nil {
-			return
+	if es.d == nil {
+		resp, err := es.c.get(es.ctx, "/events")
+		if err != nil {
+			return nil, err
 		}
 
-		es.errc <- err
-	}
-}
-
-func (es *EventSubscription) doRequest() error {
-	req, err := http.NewRequestWithContext(es.ctx, http.MethodGet, EventSubscriptionURL, nil)
-	if err != nil {
-		return err
-	}
-
-	resp, err := EventSubscriptionClient.Do(req)
-	if err != nil {
-		return err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%w: %d", errUnexpectedStatus, resp.StatusCode)
-	}
-
-	d := json.NewDecoder(resp.Body)
-	for {
-		var e Event
-		if err := d.Decode(&e); err != nil {
-			return err
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("%w: %d", errUnexpectedStatus, resp.StatusCode)
 		}
 
-		es.c <- &e
+		es.closeBody = resp.Body.Close
+		es.d = json.NewDecoder(resp.Body)
 	}
+
+	var e Event
+	if err := es.d.Decode(&e); err != nil {
+		es.closeBody()
+		es.d = nil
+
+		return nil, err
+	}
+
+	return &e, nil
 }
 
-// C returns a chan of events from the local LiteFS node.
-func (es *EventSubscription) C() <-chan *Event {
-	return es.c
-}
-
-// ErrC returns a chan of errors encountered while fetching events from the
-// local LiteFS node.
-func (es *EventSubscription) ErrC() <-chan error {
-	return es.errc
-}
-
-// Close shuts down the EventSubscription.
+// Close aborts any in-progress requests to the LiteFS node.
 func (es *EventSubscription) Close() {
-	es.close()
+	es.cancelCtx()
+
+	es.m.Lock()
+	defer es.m.Unlock()
+
+	if es.d != nil {
+		es.closeBody()
+		es.d = nil
+	}
 }

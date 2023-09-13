@@ -18,25 +18,25 @@ func ExampleSubscribeEvents() {
 		fmt.Fprintln(w, `{"type":"primaryChange","data":{"isPrimary":false,"hostname":"node-2"}}`)
 	}))
 	defer server.Close()
-	EventSubscriptionURL = server.URL
+	client := &Client{URL: server.URL, HTTP: server.Client()}
 
-	subscriber := SubscribeEvents()
+	subscriber := client.SubscribeEvents()
 	defer subscriber.Close()
 
 	for {
-		select {
-		case event := <-subscriber.C():
-			switch data := event.Data.(type) {
-			case *InitEventData:
-				fmt.Printf("init: isPrimary=%t hostname=%s\n", data.IsPrimary, data.Hostname)
-			case *PrimaryChangeEventData:
-				fmt.Printf("primary change: isPrimary=%t hostname=%s\n", data.IsPrimary, data.Hostname)
-			case *TxEventData:
-				fmt.Printf("tx: %s\n", data.TXID)
-			}
-		case err := <-subscriber.ErrC():
+		event, err := subscriber.Next()
+		if err != nil {
 			fmt.Println(err)
 			return
+		}
+
+		switch data := event.Data.(type) {
+		case *InitEventData:
+			fmt.Printf("init: isPrimary=%t hostname=%s\n", data.IsPrimary, data.Hostname)
+		case *PrimaryChangeEventData:
+			fmt.Printf("primary change: isPrimary=%t hostname=%s\n", data.IsPrimary, data.Hostname)
+		case *TxEventData:
+			fmt.Printf("tx: %s\n", data.TXID)
 		}
 	}
 
@@ -64,15 +64,8 @@ func TestEventStream(t *testing.T) {
 			initEventJSON, flush, sleep10,
 		)
 
-		select {
-		case <-es.C():
-			t.Fatal("expected error")
-		case err := <-es.ErrC():
-			if !errors.Is(err, errUnexpectedStatus) {
-				t.Fatalf("expected errUnexpectedStatus, got %s", err)
-			}
-		case <-time.After(100 * time.Millisecond):
-			t.Fatal("timeout")
+		if _, err := es.Next(); !errors.Is(err, errUnexpectedStatus) {
+			t.Fatalf("expected errUnexpectedStatus, got %v", err)
 		}
 
 		assertReadEvent(t, es, initEvent)
@@ -87,15 +80,8 @@ func TestEventStream(t *testing.T) {
 
 		assertReadEvent(t, es, initEvent)
 
-		select {
-		case <-es.C():
-			t.Fatal("expected error")
-		case err := <-es.ErrC():
-			if err.Error() != "unexpected EOF" {
-				t.Fatalf("expected errUnexpectedStatus, got %s", err)
-			}
-		case <-time.After(100 * time.Millisecond):
-			t.Fatal("timeout")
+		if _, err := es.Next(); err.Error() != "unexpected EOF" {
+			t.Fatalf("expected EOF, got %v", err)
 		}
 
 		assertReadEvent(t, es, initEvent)
@@ -107,16 +93,9 @@ func TestEventStream(t *testing.T) {
 			initEventJSON, flush, sleep10,
 		)
 
-		select {
-		case <-es.C():
-			t.Fatal("expected error")
-		case err := <-es.ErrC():
-			jerr := new(json.SyntaxError)
-			if !errors.As(err, &jerr) {
-				t.Fatalf("expected json.SyntaxError, got %s", err)
-			}
-		case <-time.After(100 * time.Millisecond):
-			t.Fatal("timeout")
+		jerr := new(json.SyntaxError)
+		if _, err := es.Next(); !errors.As(err, &jerr) {
+			t.Fatalf("expected json.SyntaxError, got %v", err)
 		}
 
 		assertReadEvent(t, es, initEvent)
@@ -138,7 +117,6 @@ var (
 	initEvent         = &Event{Type: EventTypeInit, Data: &InitEventData{IsPrimary: true, Hostname: "node-1"}}
 	txEvent           = &Event{Type: EventTypeTx, DB: "db", Data: &TxEventData{TXID: "0000000000000027", PostApplyChecksum: "83b05248774ce767", PageSize: 4096, Commit: 2}}
 	pChangeNode2Event = &Event{Type: EventTypePrimaryChange, Data: &PrimaryChangeEventData{IsPrimary: false, Hostname: "node-2"}}
-	pChangeNode1Event = &Event{Type: EventTypePrimaryChange, Data: &PrimaryChangeEventData{IsPrimary: true, Hostname: "node-1"}}
 )
 
 func mockServerSubscription(t *testing.T, resps ...string) *EventSubscription {
@@ -169,9 +147,13 @@ func mockServerSubscription(t *testing.T, resps ...string) *EventSubscription {
 		}
 	}))
 	t.Cleanup(s.Close)
-	EventSubscriptionURL = s.URL
 
-	es := SubscribeEvents()
+	client := &Client{
+		URL:  s.URL,
+		HTTP: s.Client(),
+	}
+
+	es := client.SubscribeEvents()
 	t.Cleanup(es.Close)
 
 	return es
@@ -180,14 +162,11 @@ func mockServerSubscription(t *testing.T, resps ...string) *EventSubscription {
 func assertReadEvent(t *testing.T, es *EventSubscription, expected *Event) {
 	t.Helper()
 
-	select {
-	case event := <-es.C():
-		if !reflect.DeepEqual(event, expected) {
-			t.Fatalf("wrong event\nexpected: %#v\nactual:%#v", expected, event)
-		}
-	case err := <-es.ErrC():
+	event, err := es.Next()
+	switch {
+	case err != nil:
 		t.Fatalf("unexpected error: %s", err)
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("timeout")
+	case !reflect.DeepEqual(event, expected):
+		t.Fatalf("wrong event\nexpected: %#v\nactual:%#v", expected, event)
 	}
 }

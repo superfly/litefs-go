@@ -153,10 +153,15 @@ func mockServerMonitor(t *testing.T) (*PrimaryMonitor, chan string) {
 		}
 	}))
 	t.Cleanup(s.Close)
-	EventSubscriptionURL = s.URL
 
-	pm := NewPrimaryMonitor()
+	client := &Client{
+		URL:  s.URL,
+		HTTP: s.Client(),
+	}
+
+	pm := client.MonitorPrimary()
 	t.Cleanup(pm.Close)
+
 	t.Cleanup(func() { close(c) })
 
 	return pm, c
